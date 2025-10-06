@@ -1,0 +1,212 @@
+import pyautogui
+import schedule
+import time
+import telegram
+import subprocess
+import pytesseract
+from datetime import datetime, timedelta
+import psutil
+import sys
+import os
+import hashlib
+import pickle
+import cv2
+import numpy as np
+import calendar
+
+
+# 📌 Путь к Tesseract OCR
+pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+
+# 📬 Настройки Telegram
+TELEGRAM_TOKEN = '5965501630:AAEdeootXVpGcFc3EdyPhlt7v0G6um_LNDQ'
+TELEGRAM_CHAT_ID = '1332603730'
+bot = telegram.Bot(token=TELEGRAM_TOKEN)
+
+# 📁 Путь к ярлыку Ozon Job
+OZON_JOB_SHORTCUT_PATH = r'"C:\Users\Кирилла\Desktop\Ozon Job.lnk"'
+
+# ⏱ Время последнего перезапуска BlueStacks
+last_restart_time = datetime.min
+
+# 🔒 Путь к файлу с хешем последней смены
+HASH_FILE = "last_shift_block_hash.pkl"
+if os.path.exists(HASH_FILE):
+    with open(HASH_FILE, 'rb') as f:
+        last_shift_block_hash = pickle.load(f)
+else:
+    last_shift_block_hash = None
+
+FIRE_ICON_PATH = "fire_icon.png"  # 🔥 Путь к эталонной иконке
+
+def is_last_day_of_30_day_month():
+    today = datetime.now()
+    _, days_in_month = calendar.monthrange(today.year, today.month)
+    return today.day == 30 and days_in_month == 30
+
+# ✅ Безопасный клик
+def safe_click(x, y, delay=0.7):
+    pyautogui.moveTo(x, y, duration=0.3)
+    pyautogui.click()
+    time.sleep(delay)
+
+# ✅ Проверка, запущен ли BlueStacks
+def is_bluestacks_running():
+    return any('HD-Player.exe' in p.name() for p in psutil.process_iter())
+
+# 🔁 Автоперезапуск скрипта
+def restart_script():
+    try:
+        bot.send_message(chat_id=TELEGRAM_CHAT_ID, text="🔁 Перезапуск скрипта из-за ошибки...")
+    except:
+        pass
+    python = sys.executable
+    os.execl(python, python, *sys.argv)
+
+# 🔧 Главная функция
+def send_screenshot():
+    global last_restart_time, last_shift_block_hash
+    region2 = 666, 72, 1249, 1078
+    try:
+        if datetime.now() - last_restart_time >= timedelta(minutes=15):
+            print(f"[{datetime.now()}] ⛔ Закрываем BlueStacks...")
+            subprocess.call(["taskkill", "/f", "/im", "HD-Player.exe"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            time.sleep(5)
+
+            print(f"[{datetime.now()}] 🚀 Запускаем ярлык Ozon Job...")
+            subprocess.Popen(OZON_JOB_SHORTCUT_PATH, shell=True)
+            time.sleep(10)
+
+            for i in range(10):
+                if is_bluestacks_running():
+                    print("✅ BlueStacks успешно запущен.")
+                    time.sleep(10)
+                    safe_click(1035,1040)
+                    time.sleep(0.5)
+                    safe_click(791, 432)
+                    safe_click(1076, 232)
+                    if is_last_day_of_30_day_month() and datetime.now().day == 31:
+                        safe_click(1228, 364) 
+                    screenshot1 = pyautogui.screenshot(region=region2)
+                    text2 = pytesseract.image_to_string(screenshot1, lang='rus+eng')
+                    cleaned_block2 = text2.lower().replace('ё', 'е').strip()
+                    if 'что-то пошло не так' in cleaned_block2:
+                        print(f"[{datetime.now()}] ⛔ Закрываем BlueStacks из-за ошибки")
+                        subprocess.call(["taskkill", "/f", "/im", "HD-Player.exe"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        subprocess.Popen(OZON_JOB_SHORTCUT_PATH, shell=True)
+                        time.sleep(10)
+                        bot.send_message(chat_id=TELEGRAM_CHAT_ID, text='Ошибка в Ozon, перезапуск')
+                    break
+                time.sleep(2)
+            else:
+                raise Exception("❌ BlueStacks не запустился!")
+
+            last_restart_time = datetime.now()
+            time.sleep(8)
+            safe_click(1228, 364)
+            safe_click(1188, 364)
+
+        # 👁 Поиск иконки огонька через OpenCV
+        screen = pyautogui.screenshot()
+        screen = cv2.cvtColor(np.array(screen), cv2.COLOR_RGB2BGR)
+        template = cv2.imread(FIRE_ICON_PATH, 1)
+
+
+
+        if template is None:
+            raise Exception(f"🔥 Иконка {FIRE_ICON_PATH} не загружена!")
+
+        res = cv2.matchTemplate(screen, template, cv2.TM_CCOEFF_NORMED)
+        min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
+
+
+        threshold = 0.75
+        fire_location = None
+        if max_val >= threshold:
+            tH, tW = template.shape[:2]
+            fire_location = type('Rect', (object,), {
+                'left': max_loc[0],
+                'top': max_loc[1],
+                'width': tW,
+                'height': tH
+            })()
+            print(f"[{datetime.now()}] 🔥 OpenCV нашёл огонёк с уверенностью {max_val:.2f}")
+        else:
+            print(f"[{datetime.now()}] 🔍 Огонёк не найден (уверенность: {max_val:.2f})")
+
+        if fire_location:
+            x, y, w, h = fire_location.left, fire_location.top, fire_location.width, fire_location.height
+            region = (x - 300, y - 50, 600, 200)
+            screenshot2 = pyautogui.screenshot(region=region)
+            text = pytesseract.image_to_string(screenshot2, lang='rus+eng')
+            cleaned_block = text.lower().replace('ё', 'е').strip()
+            current_block_hash = hashlib.md5(cleaned_block.encode('utf-8')).hexdigest()
+
+            if current_block_hash == last_shift_block_hash:
+                print(f"[{datetime.now()}] 🔁 Та же самая горячая смена. Скриншот не отправляется.")
+                safe_click(1228, 364)
+                safe_click(1188, 364)
+
+                return
+
+            last_shift_block_hash = current_block_hash
+            with open(HASH_FILE, 'wb') as f:
+                pickle.dump(last_shift_block_hash, f)
+
+            filename = f"screenshot_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+            full_screenshot = pyautogui.screenshot()
+            full_screenshot.save(filename)
+            time.sleep(1)
+            with open(filename, 'rb') as f:
+                bot.send_photo(chat_id=TELEGRAM_CHAT_ID, photo=f)
+                #center_x = fire_location.left + fire_location.width // 2 - 10
+                #center_y = fire_location.top + fire_location.height // 2 + 12
+                #print(f"[{datetime.now()}] 👉 Кликаем по числу в огоньке: ({center_x}, {center_y})")
+                #safe_click(center_x, center_y)
+                #time.sleep(0.8)
+                safe_click(1216, 952)
+                safe_click(954, 1034)
+
+            print(f"[{datetime.now()}] ✅ Скриншот отправлен.")
+            safe_click(1228, 364)
+            safe_click(1188, 364)
+            screenshot3 = pyautogui.screenshot(region=region2)
+            text3 = pytesseract.image_to_string(screenshot3, lang='rus+eng')
+            cleaned_block3 = text3.lower().replace('ё', 'е').strip()
+            if 'что-то пошло не так' in cleaned_block3:
+                print(f"[{datetime.now()}] ⛔ Закрываем BlueStacks из-за ошибки")
+                subprocess.call(["taskkill", "/f", "/im", "HD-Player.exe"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                subprocess.Popen(OZON_JOB_SHORTCUT_PATH, shell=True)
+                time.sleep(10)
+                bot.send_message(chat_id=TELEGRAM_CHAT_ID, text='Ошибка в Ozon, перезапуск')
+
+        else:
+            safe_click(1228, 364)
+            safe_click(1188, 364)
+            screenshot4 = pyautogui.screenshot(region=region2)
+            text4 = pytesseract.image_to_string(screenshot4, lang='rus+eng')
+            cleaned_block4 = text4.lower().replace('ё', 'е').strip()
+            if 'что-то пошло не так' in cleaned_block4:
+                print(f"[{datetime.now()}] ⛔ Закрываем BlueStacks из-за ошибки")
+                subprocess.call(["taskkill", "/f", "/im", "HD-Player.exe"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                subprocess.Popen(OZON_JOB_SHORTCUT_PATH, shell=True)
+                time.sleep(10)
+                bot.send_message(chat_id=TELEGRAM_CHAT_ID, text='Ошибка в Ozon, перезапуск')
+
+    except Exception as e:
+        error_text = f"❌ Ошибка: {e}"
+        print(error_text)
+        try:
+            bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=error_text)
+        except:
+            pass
+        restart_script()
+
+# 🕒 Периодичность запуска
+schedule.every(1).seconds.do(send_screenshot)
+
+print("📸 Screenshot bot is running. Press Ctrl+C to stop.")
+
+while True:
+    schedule.run_pending()
+    time.sleep(1)
